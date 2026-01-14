@@ -25,11 +25,29 @@ export async function submitTimeLog(hours: number, minutes: number) {
         .eq('id', userId)
         .single()
 
-    if (profileError) {
-        console.error('Error fetching user profile:', profileError)
-        // Fallback or throw
-        // throw new Error('Could not fetch user profile')
-        // For dev without real data:
+    if (profileError || !userProfile) {
+        // If dev user doesn't exist, create it
+        if (userId === '00000000-0000-0000-0000-000000000000') {
+            console.log('Dev user not found, creating...')
+            const { error: createError } = await supabase
+                .from('users')
+                .insert({
+                    id: userId,
+                    email: 'dev@example.com',
+                    full_name: 'Dev User',
+                    role: 'assistant',
+                    hourly_rate_cents: 2500,
+                    min_guarantee_minutes: 120
+                })
+
+            if (createError) {
+                console.error('Failed to create dev user:', createError)
+                throw new Error('Failed to create dev user')
+            }
+            // Continue with defaults after creation
+        } else {
+            console.error('Error fetching user profile:', profileError)
+        }
     }
 
     const hourlyRateCents = userProfile?.hourly_rate_cents || 2500 // Default $25.00
