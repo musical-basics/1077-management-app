@@ -36,6 +36,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/app-sidebar"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -44,7 +47,13 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${geistMono.variable} font-sans antialiased`}>
-        {children}
+        <SidebarProvider>
+          <AppSidebar />
+          <main className="w-full">
+            <SidebarTrigger />
+            {children}
+          </main>
+        </SidebarProvider>
         <Analytics />
       </body>
     </html>

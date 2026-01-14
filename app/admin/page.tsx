@@ -7,6 +7,10 @@ import { WeeklySchedule } from "@/components/admin/weekly-schedule"
 import { CommunicationHub } from "@/components/admin/communication-hub"
 import { ProjectLibrary } from "@/components/admin/project-library"
 
+import { MasterCalendar } from "@/components/admin/master-calendar"
+import { StaffManagement } from "@/components/admin/staff-management"
+import { FinancialIntelligence } from "@/components/admin/financial-intelligence"
+
 export default function AdminPage() {
   const [activeNav, setActiveNav] = useState("dashboard")
 
@@ -43,9 +47,9 @@ export default function AdminPage() {
             </>
           )}
           {activeNav === "library" && <ProjectLibrary />}
-          {activeNav === "calendar" && <div className="text-muted-foreground">Calendar view coming soon...</div>}
-          {activeNav === "staff" && <div className="text-muted-foreground">Staff management coming soon...</div>}
-          {activeNav === "finances" && <div className="text-muted-foreground">Financial reports coming soon...</div>}
+          {activeNav === "calendar" && <MasterCalendar />}
+          {activeNav === "staff" && <StaffManagement />}
+          {activeNav === "finances" && <FinancialIntelligence />}
         </div>
       </main>
     </div>

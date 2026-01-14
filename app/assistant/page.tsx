@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { SlideToClockIn } from "@/components/assistant/slide-to-clock-in"
+import { TimeLogger } from "@/components/assistant/time-logger"
 import { ActiveProjects } from "@/components/assistant/active-projects"
 import { AssistantInbox } from "@/components/assistant/assistant-inbox"
 import { ListChecks, MessageSquare } from "lucide-react"
@@ -44,15 +44,13 @@ export default function AssistantPage() {
         {activeTab === "tasks" ? (
           <>
             {/* Hero Section - Time Clock */}
-            <Card className="border border-border bg-card">
-              <CardContent className="p-6 space-y-6">
-                <div className="text-center">
-                  <p className="text-muted-foreground text-sm uppercase tracking-wider mb-1">Today</p>
-                  <p className="text-xl font-semibold text-foreground">{formattedDate}</p>
-                </div>
-                <SlideToClockIn />
-              </CardContent>
-            </Card>
+            <div className="space-y-2">
+              <div className="text-center pb-2">
+                <p className="text-muted-foreground text-sm uppercase tracking-wider mb-1">Today</p>
+                <p className="text-xl font-semibold text-foreground">{formattedDate}</p>
+              </div>
+              <TimeLogger />
+            </div>
 
             {/* Shift Briefing Card */}
             <Card className="border border-border bg-card">
