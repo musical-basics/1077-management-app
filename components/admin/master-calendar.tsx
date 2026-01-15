@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { GripVertical, ChevronLeft, ChevronRight, Plus, Clock, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,70 +14,122 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+// Import Server Actions
+import { getTemplates, createTemplate, getShifts, createShift } from "@/app/admin/actions"
 
-interface Shift {
-  id: string
-  title: string
-  employee: string
-  day: number
-  startHour: number
-  duration: number
-  status: "confirmed" | "pending"
-}
-
+// --- Types tailored to Supabase Data ---
 interface ProjectTemplate {
   id: string
   name: string
-  duration: string
-  hours: number
-  color: string
-  steps: string[]
+  description?: string
+  estimated_duration?: number // in minutes
+  // Helper for UI color logic - we can cycle based on ID or index
 }
 
-const shifts: Shift[] = [
-  { id: "1", title: "Unit B Turnover", employee: "Sarah", day: 1, startHour: 9, duration: 3, status: "confirmed" },
-  { id: "2", title: "Dog Walk", employee: "Mike", day: 1, startHour: 14, duration: 1.5, status: "pending" },
-  { id: "3", title: "Deep Clean", employee: "Emma", day: 2, startHour: 10, duration: 5, status: "confirmed" },
-  { id: "4", title: "Groceries Run", employee: "Mike", day: 3, startHour: 11, duration: 1.5, status: "confirmed" },
-  { id: "5", title: "Standard Clean", employee: "Sarah", day: 4, startHour: 9, duration: 3, status: "pending" },
-  { id: "6", title: "Pool Maintenance", employee: "James", day: 5, startHour: 8, duration: 2, status: "confirmed" },
-]
-
-const projectTemplates: ProjectTemplate[] = [
-  { id: "1", name: "Standard Clean", duration: "3h", hours: 3, color: "bg-chart-1", steps: ["Step 1", "Step 2"] },
-  { id: "2", name: "Dog Walk & Groceries", duration: "1.5h", hours: 1.5, color: "bg-chart-2", steps: ["Step 1"] },
-  { id: "3", name: "Deep Clean", duration: "5h", hours: 5, color: "bg-chart-3", steps: ["Step 1", "Step 2", "Step 3"] },
-  { id: "4", name: "Pool Maintenance", duration: "2h", hours: 2, color: "bg-chart-5", steps: ["Step 1"] },
-]
+interface ShiftDisplay {
+  id: string
+  title: string
+  employee: string
+  start: Date
+  end: Date
+  dayIndex: number // 0 = Mon, 6 = Sun
+  startHour: number // decimal 9.5 etc
+  duration: number // hours
+  status: string
+}
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const hours = Array.from({ length: 13 }, (_, i) => i + 8) // 8am to 8pm
 
 export function MasterCalendar() {
-  const [currentWeek] = useState(new Date())
+  const [currentWeek, setCurrentWeek] = useState(new Date())
+
+  // Real Data State
+  const [templates, setTemplates] = useState<ProjectTemplate[]>([])
+  const [shifts, setShifts] = useState<ShiftDisplay[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Drag State
   const [draggedTemplate, setDraggedTemplate] = useState<ProjectTemplate | null>(null)
+
+  // Modal State
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
   const [newTemplate, setNewTemplate] = useState({
     name: "",
     hours: "",
-    color: "bg-chart-1",
-    steps: [""] as string[],
+    description: "",
   })
 
-  const colorOptions = [
-    { value: "bg-chart-1", label: "Green" },
-    { value: "bg-chart-2", label: "Yellow" },
-    { value: "bg-chart-3", label: "Purple" },
-    { value: "bg-chart-4", label: "Cyan" },
-    { value: "bg-chart-5", label: "Orange" },
-  ]
+  // --- Initial Data Fetching ---
+  const fetchData = async () => {
+    setLoading(true)
+    try {
+      // 1. Fetch Templates
+      const templatesData = await getTemplates()
+      setTemplates(templatesData)
 
-  const getWeekDates = () => {
-    const start = new Date(currentWeek)
+      // 2. Fetch Shifts for current week
+      const weekDates = getWeekDates()
+      const startOfWeek = new Date(currentWeek) // Cloned in getWeekDates logic actually
+      // Let's calculate proper bounds
+      const start = getStartOfWeek(currentWeek)
+      const end = new Date(start)
+      end.setDate(end.getDate() + 7)
+
+      const shiftsData = await getShifts(start, end)
+
+      // Transform DB shifts to UI Shifts
+      const mappedShifts: ShiftDisplay[] = shiftsData.map((s: any) => {
+        const startTime = new Date(s.start_time)
+        const endTime = new Date(s.end_time_expected)
+        // Calculate day index (0-6, Mon-Sun)
+        let dayIndex = startTime.getDay() - 1
+        if (dayIndex < 0) dayIndex = 6 // Sunday fix
+
+        // Calculate duration in hours
+        const durationHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60)
+
+        // Start hour (decimal)
+        const startHour = startTime.getHours() + (startTime.getMinutes() / 60)
+
+        return {
+          id: s.id,
+          title: s.project?.name || "Unknown Project",
+          employee: s.user?.full_name || "Unassigned",
+          start: startTime,
+          end: endTime,
+          dayIndex,
+          startHour,
+          duration: durationHours,
+          status: s.status
+        }
+      })
+      setShifts(mappedShifts)
+
+    } catch (e) {
+      console.error("Error loading calendar data", e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [currentWeek])
+
+
+  // --- Helper Functions ---
+  const getStartOfWeek = (date: Date) => {
+    const start = new Date(date)
     const day = start.getDay()
     const diff = start.getDate() - day + (day === 0 ? -6 : 1)
+    start.setHours(0, 0, 0, 0)
     start.setDate(diff)
+    return start
+  }
 
+  const getWeekDates = () => {
+    const start = getStartOfWeek(currentWeek)
     return days.map((_, i) => {
       const date = new Date(start)
       date.setDate(start.getDate() + i)
@@ -88,9 +140,10 @@ export function MasterCalendar() {
   const weekDates = getWeekDates()
 
   const getShiftsForDay = (dayIndex: number) => {
-    return shifts.filter((shift) => shift.day === dayIndex)
+    return shifts.filter((shift) => shift.dayIndex === dayIndex)
   }
 
+  // --- Drag & Drop Handlers ---
   const handleDragStart = (template: ProjectTemplate) => {
     setDraggedTemplate(template)
   }
@@ -99,50 +152,76 @@ export function MasterCalendar() {
     setDraggedTemplate(null)
   }
 
-  const addStep = () => {
-    setNewTemplate({ ...newTemplate, steps: [...newTemplate.steps, ""] })
+  const handleDrop = async (dayIndex: number, hour: number) => {
+    if (!draggedTemplate) return
+
+    // 1. Calculate Start Time
+    const startOfWeek = getStartOfWeek(currentWeek)
+    const targetDate = new Date(startOfWeek)
+    targetDate.setDate(targetDate.getDate() + dayIndex)
+    targetDate.setHours(hour, 0, 0, 0)
+
+    // 2. Calculate End Time
+    const durationMinutes = draggedTemplate.estimated_duration || 60
+    const endDate = new Date(targetDate.getTime() + durationMinutes * 60000)
+
+    try {
+      await createShift({
+        project_template_id: draggedTemplate.id,
+        start_time: targetDate,
+        end_time_expected: endDate,
+        status: 'draft' // Default to draft/pending
+      })
+      // Optimized refresh
+      fetchData()
+    } catch (error) {
+      console.error("Failed to drop shift", error)
+    } finally {
+      setDraggedTemplate(null)
+    }
   }
 
-  const updateStep = (index: number, value: string) => {
-    const updatedSteps = [...newTemplate.steps]
-    updatedSteps[index] = value
-    setNewTemplate({ ...newTemplate, steps: updatedSteps })
+  // --- Create Template Modal Handlers ---
+  const handleCreateTemplate = async () => {
+    try {
+      await createTemplate(newTemplate.name, newTemplate.description, parseFloat(newTemplate.hours) * 60)
+      setIsTemplateModalOpen(false)
+      fetchData() // Refresh list
+      setNewTemplate({ name: "", hours: "", description: "" })
+    } catch (e) {
+      console.error(e)
+    }
   }
 
-  const removeStep = (index: number) => {
-    const updatedSteps = newTemplate.steps.filter((_, i) => i !== index)
-    setNewTemplate({ ...newTemplate, steps: updatedSteps.length > 0 ? updatedSteps : [""] })
-  }
-
-  const handleCreateTemplate = () => {
-    // In a real app, this would save to the database
-    setIsTemplateModalOpen(false)
-    setNewTemplate({
-      name: "",
-      hours: "",
-      color: "bg-chart-1",
-      steps: [""],
-    })
+  // Quick Color Helper
+  const getTemplateColor = (index: number) => {
+    const colors = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"]
+    return colors[index % colors.length]
   }
 
   return (
     <div className="flex gap-6 h-[calc(100vh-200px)] min-h-[600px]">
       {/* Left Column - Calendar Grid */}
-      <div className="flex-1 min-w-0 flex flex-col border border-border rounded-lg overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col border border-border rounded-lg overflow-hidden select-none">
+
         {/* Calendar Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+              const next = new Date(currentWeek); next.setDate(next.getDate() - 7); setCurrentWeek(next)
+            }}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <span className="font-medium text-foreground">
               {currentWeek.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
             </span>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+              const next = new Date(currentWeek); next.setDate(next.getDate() + 7); setCurrentWeek(next)
+            }}>
               <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => setCurrentWeek(new Date())}>
             Today
           </Button>
         </div>
@@ -176,12 +255,22 @@ export function MasterCalendar() {
             {days.map((_, dayIndex) => (
               <div
                 key={dayIndex}
-                className={cn("relative border-l border-border", draggedTemplate && "bg-accent/20")}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleDragEnd()}
+                className={cn("relative border-l border-border", draggedTemplate && "bg-accent/10")}
               >
+                {/* Hour Slots - Drop Targets */}
                 {hours.map((hour) => (
-                  <div key={hour} className="h-16 border-b border-border" />
+                  <div
+                    key={hour}
+                    className="h-16 border-b border-border transition-colors hover:bg-muted/20"
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = "copy"
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      handleDrop(dayIndex, hour) // Pass specific hour
+                    }}
+                  />
                 ))}
 
                 {/* Shift Cards */}
@@ -193,20 +282,12 @@ export function MasterCalendar() {
                     <div
                       key={shift.id}
                       className={cn(
-                        "absolute left-1 right-1 rounded-md px-2 py-1.5 overflow-hidden transition-all",
-                        shift.status === "confirmed"
-                          ? "bg-chart-1/20 border border-chart-1/40"
-                          : "bg-chart-2/20 border border-chart-2/40 border-dashed",
+                        "absolute left-1 right-1 rounded-md px-2 py-1.5 overflow-hidden transition-all border",
+                        "bg-primary/10 border-primary/20 hover:bg-primary/20"
                       )}
                       style={{ top: `${top}px`, height: `${height}px` }}
                     >
-                      <p
-                        className={cn(
-                          "text-xs font-medium truncate",
-                          shift.status === "confirmed" ? "text-chart-1" : "text-chart-2",
-                        )}
-                      >
-                        {shift.status === "pending" && "Pending: "}
+                      <p className="text-xs font-medium truncate text-foreground">
                         {shift.employee}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">{shift.title}</p>
@@ -219,33 +300,47 @@ export function MasterCalendar() {
         </div>
       </div>
 
-      {/* Right Column - Project Template Library */}
-      <div className="w-72 flex flex-col border border-border rounded-lg overflow-hidden">
+      {/* Right Column - Project Template Library (Sidebar) */}
+      <div className="w-72 flex flex-col border border-border rounded-lg overflow-hidden bg-card">
         <div className="px-4 py-3 border-b border-border bg-muted/30">
           <h3 className="font-medium text-foreground">Project Templates</h3>
           <p className="text-xs text-muted-foreground mt-0.5">Drag to schedule</p>
         </div>
 
         <div className="flex-1 p-3 space-y-2 overflow-auto">
-          {projectTemplates.map((template) => (
-            <div
-              key={template.id}
-              draggable
-              onDragStart={() => handleDragStart(template)}
-              onDragEnd={handleDragEnd}
-              className={cn(
-                "flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/30 cursor-grab active:cursor-grabbing transition-colors",
-                draggedTemplate?.id === template.id && "opacity-50",
-              )}
-            >
-              <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <div className={cn("w-2 h-8 rounded-full flex-shrink-0", template.color)} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">{template.name}</p>
-                <p className="text-xs text-muted-foreground">{template.duration}</p>
+          {loading ? (
+            <div className="text-center text-xs text-muted-foreground py-4">Loading...</div>
+          ) : templates.length === 0 ? (
+            <div className="text-center text-xs text-muted-foreground py-4">No templates found.</div>
+          ) : (
+            templates.map((template, index) => (
+              <div
+                key={template.id}
+                draggable
+                onDragStart={() => handleDragStart(template)}
+                onDragEnd={handleDragEnd}
+                className={cn(
+                  "flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/30 cursor-grab active:cursor-grabbing transition-colors",
+                  draggedTemplate?.id === template.id && "opacity-50",
+                )}
+              >
+                <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                {/* Color strip */}
+                <div className={cn("w-2 h-8 rounded-full flex-shrink-0", getTemplateColor(index))} />
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{template.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {template.estimated_duration ? (
+                      template.estimated_duration >= 60
+                        ? `${Math.floor(template.estimated_duration / 60)}h ${template.estimated_duration % 60}m`
+                        : `${template.estimated_duration}m`
+                    ) : '0m'}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
         <div className="p-3 border-t border-border">
@@ -256,133 +351,53 @@ export function MasterCalendar() {
             onClick={() => setIsTemplateModalOpen(true)}
           >
             <Plus className="w-4 h-4" />
-            New Template
+            Quick Template
           </Button>
         </div>
       </div>
 
-      {/* New Template Modal */}
+      {/* New Template Modal (Quick Add) */}
       <Dialog open={isTemplateModalOpen} onOpenChange={setIsTemplateModalOpen}>
-        <DialogContent className="sm:max-w-[500px] bg-card border-border">
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle className="text-foreground">Create Project Template</DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              Define a reusable project template with steps and estimated duration.
+            <DialogTitle>Quick Create Template</DialogTitle>
+            <DialogDescription>
+              Add a basic template. For more options use the Project Library.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-5 py-4">
-            {/* Template Name */}
+          <div className="grid gap-4 py-4">
             <div className="space-y-2">
-              <Label className="text-foreground">Template Name</Label>
+              <Label>Name</Label>
               <Input
-                placeholder="e.g. Deep Clean, Dog Walk"
                 value={newTemplate.name}
                 onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
-                className="bg-muted/50 border-border"
+                placeholder="e.g. Lawn Mowing"
               />
             </div>
-
-            {/* Duration and Color Row */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-foreground flex items-center gap-2">
-                  <Clock className="w-3 h-3 text-muted-foreground" />
-                  Estimated Duration
-                </Label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    step="0.5"
-                    placeholder="3"
-                    value={newTemplate.hours}
-                    onChange={(e) => setNewTemplate({ ...newTemplate, hours: e.target.value })}
-                    className="bg-muted/50 border-border pr-14"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">hours</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-foreground">Color Tag</Label>
-                <div className="flex gap-2">
-                  {colorOptions.map((color) => (
-                    <button
-                      key={color.value}
-                      type="button"
-                      onClick={() => setNewTemplate({ ...newTemplate, color: color.value })}
-                      className={cn(
-                        "w-8 h-8 rounded-full transition-all",
-                        color.value,
-                        newTemplate.color === color.value
-                          ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
-                          : "opacity-60 hover:opacity-100",
-                      )}
-                      title={color.label}
-                    />
-                  ))}
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                value={newTemplate.description}
+                onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
+                placeholder="Optional description"
+              />
             </div>
-
-            {/* Steps Section */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-foreground">Checklist Steps</Label>
-                <span className="text-xs text-muted-foreground">{newTemplate.steps.filter((s) => s).length} steps</span>
-              </div>
-              <div className="space-y-2 max-h-48 overflow-auto">
-                {newTemplate.steps.map((step, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-5 text-right">{index + 1}.</span>
-                    <Input
-                      placeholder={`Step ${index + 1} description`}
-                      value={step}
-                      onChange={(e) => updateStep(index, e.target.value)}
-                      className="bg-muted/50 border-border flex-1"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeStep(index)}
-                      disabled={newTemplate.steps.length === 1 && !step}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-              <Button variant="outline" size="sm" className="w-full gap-2 bg-transparent" onClick={addStep}>
-                <Plus className="w-4 h-4" />
-                Add Step
-              </Button>
+            <div className="space-y-2">
+              <Label>Est. Hours</Label>
+              <Input
+                type="number"
+                value={newTemplate.hours}
+                onChange={(e) => setNewTemplate({ ...newTemplate, hours: e.target.value })}
+                step="0.5"
+                placeholder="2.5"
+              />
             </div>
-
-            {/* Preview */}
-            {newTemplate.name && (
-              <div className="border border-border rounded-lg p-3 bg-muted/20">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Preview</p>
-                <div className="flex items-center gap-3">
-                  <div className={cn("w-2 h-8 rounded-full", newTemplate.color)} />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{newTemplate.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {newTemplate.hours ? `${newTemplate.hours}h` : "0h"} • {newTemplate.steps.filter((s) => s).length}{" "}
-                      steps
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setIsTemplateModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateTemplate} disabled={!newTemplate.name || !newTemplate.hours}>
-              Create Template
-            </Button>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsTemplateModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreateTemplate}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

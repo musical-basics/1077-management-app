@@ -90,3 +90,48 @@ export async function updateTask(id: string, title: string, duration: string) {
     if (error) throw error
     revalidatePath('/admin')
 }
+
+export async function getShifts(start: Date, end: Date) {
+    const { data: shifts, error } = await supabase
+        .from('shifts')
+        .select(`
+            *,
+            project:project_templates(name, estimated_duration),
+            user:users(full_name)
+        `)
+        .gte('start_time', start.toISOString())
+        .lte('start_time', end.toISOString())
+
+    if (error) {
+        console.error('Error fetching shifts:', error)
+        return []
+    }
+
+    return shifts
+}
+
+export async function createShift(data: {
+    user_id?: string,
+    project_template_id: string,
+    start_time: Date,
+    end_time_expected: Date,
+    status: 'draft' | 'pending' | 'confirmed' | 'completed' | 'cancelled'
+}) {
+    // If no user assigned, we might need a placeholder or allow null if schema permits
+    // Current schema: user_id references users(id). It does NOT say 'not null' in schema provided earlier, 
+    // but typically a shift needs a user. For drag-drop, we might create an "Unassigned" shift?
+    // Let's check schema: "user_id uuid references users(id)" -> nullable by default.
+
+    const { error } = await supabase
+        .from('shifts')
+        .insert([{
+            project_template_id: data.project_template_id,
+            start_time: data.start_time.toISOString(),
+            end_time_expected: data.end_time_expected.toISOString(),
+            status: data.status,
+            user_id: data.user_id
+        }])
+
+    if (error) throw error
+    revalidatePath('/admin')
+}
