@@ -1,38 +1,59 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { createTemplate } from "@/app/admin/actions"
+import { createTemplate, updateTemplate } from "@/app/admin/actions"
 
 interface TemplateDialogProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     onSuccess: () => void
+    initialData?: {
+        id: string
+        name: string
+        description: string
+        estimated_duration?: number
+    } | null
 }
 
-export function TemplateDialog({ open, onOpenChange, onSuccess }: TemplateDialogProps) {
+export function TemplateDialog({ open, onOpenChange, onSuccess, initialData }: TemplateDialogProps) {
     const [loading, setLoading] = useState(false)
     const [name, setName] = useState("")
     const [description, setDescription] = useState("")
     const [duration, setDuration] = useState("0")
+
+    useEffect(() => {
+        if (open) {
+            if (initialData) {
+                setName(initialData.name)
+                setDescription(initialData.description || "")
+                setDuration(initialData.estimated_duration?.toString() || "0")
+            } else {
+                setName("")
+                setDescription("")
+                setDuration("0")
+            }
+        }
+    }, [open, initialData])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setLoading(true)
 
         try {
-            await createTemplate(name, description, parseInt(duration) || 0)
+            if (initialData) {
+                await updateTemplate(initialData.id, name, description, parseInt(duration) || 0)
+            } else {
+                await createTemplate(name, description, parseInt(duration) || 0)
+            }
 
             onSuccess()
             onOpenChange(false)
-            setName("")
-            setDescription("")
-            setDuration("0")
         } catch (error) {
-            console.error('Error creating template:', error)
+            console.error('Error saving template:', error)
         } finally {
             setLoading(false)
         }
@@ -42,7 +63,7 @@ export function TemplateDialog({ open, onOpenChange, onSuccess }: TemplateDialog
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                    <DialogTitle>Create New Template</DialogTitle>
+                    <DialogTitle>{initialData ? "Edit Template" : "Create New Template"}</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-4 py-4">
                     <div className="grid gap-2">
@@ -79,7 +100,7 @@ export function TemplateDialog({ open, onOpenChange, onSuccess }: TemplateDialog
                             Cancel
                         </Button>
                         <Button type="submit" disabled={loading}>
-                            {loading ? "Creating..." : "Create Template"}
+                            {loading ? "Saving..." : (initialData ? "Save Changes" : "Create Template")}
                         </Button>
                     </DialogFooter>
                 </form>

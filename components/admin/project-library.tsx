@@ -30,6 +30,8 @@ export function ProjectLibrary() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
+
   const fetchTemplates = async () => {
     try {
       setLoading(true)
@@ -58,6 +60,17 @@ export function ProjectLibrary() {
     }
   }
 
+  const handleEdit = (template: Template, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingTemplate(template)
+    setIsDialogOpen(true)
+  }
+
+  const handleCreate = () => {
+    setEditingTemplate(null)
+    setIsDialogOpen(true)
+  }
+
   const handleAddStep = async (templateId: string) => {
     try {
       await addTask(templateId)
@@ -67,7 +80,16 @@ export function ProjectLibrary() {
     }
   }
 
-  const getTotalDuration = (steps: Step[]) => {
+  const getTotalDuration = (steps: Step[], explicitDuration?: number) => {
+    if (explicitDuration && explicitDuration > 0) {
+      const hours = Math.floor(explicitDuration / 60)
+      const mins = explicitDuration % 60
+      if (hours > 0) {
+        return `${hours}h ${mins}m`
+      }
+      return `${mins} min`
+    }
+
     let total = 0
     steps.forEach((step) => {
       if (step.duration) {
@@ -91,7 +113,7 @@ export function ProjectLibrary() {
           variant="outline"
           size="sm"
           className="gap-2 bg-transparent"
-          onClick={() => setIsDialogOpen(true)}
+          onClick={handleCreate}
         >
           <Plus className="w-4 h-4" />
           New Template
@@ -102,6 +124,7 @@ export function ProjectLibrary() {
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         onSuccess={fetchTemplates}
+        initialData={editingTemplate}
       />
 
       {loading ? (
@@ -112,7 +135,7 @@ export function ProjectLibrary() {
           <Button
             variant="ghost"
             className="mt-2 text-primary"
-            onClick={() => setIsDialogOpen(true)}
+            onClick={handleCreate}
           >
             Create Template
           </Button>
@@ -139,28 +162,53 @@ export function ProjectLibrary() {
                   </div>
                   <div className="flex items-center gap-4 mr-2">
                     <span className="text-sm text-muted-foreground">{template.steps.length} steps</span>
-                    <span className="text-sm font-medium text-foreground">{getTotalDuration(template.steps)}</span>
+                    <span className="text-sm font-medium text-foreground">{getTotalDuration(template.steps, template.estimated_duration)}</span>
 
-                    {/* Action Buttons - Visible on Group Hover */}
+                    {/* Action Buttons - Moved outside of trigger logic viastopPropagation, but still visually nested. 
+                        Ideally, we would refactor Accordion to allow headers with actions, but stopping propagation 
+                        on a div wrapper is a common workaround even if the HTML is technically nested.
+                        
+                        However, since Shadcn's AccordionTrigger IS a button, we cannot put buttons inside it as descendants.
+                        We must use a different structure or accept the click handler on a span/div logic. 
+                        
+                        Better Fix: Replace the Shadcn/Radix Trigger buttons with a span that looks like a button? No.
+                        Real Fix: Use "asChild" on AccordionTrigger and provide a custom structure? 
+                        
+                        For now, preventing the console error "button descendant of button" is priority.
+                        We will change the Edit/Delete buttons to be `div`s with `role="button"` to satisfy HTML validity 
+                        while maintaining behaviour.
+                    */}
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                        onClick={(e) => { e.stopPropagation(); console.log("Edit template meta") }}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="inline-flex items-center justify-center p-2 rounded-md h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+                        onClick={(e) => handleEdit(template, e)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.stopPropagation();
+                            handleEdit(template, e as any)
+                          }
+                        }}
                         title="Edit Template Details"
                       >
                         <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      </div>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="inline-flex items-center justify-center p-2 rounded-md h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-muted cursor-pointer"
                         onClick={(e) => handleDelete(template.id, e)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.stopPropagation();
+                            handleDelete(template.id, e as any)
+                          }
+                        }}
                         title="Delete Template"
                       >
                         <Trash2 className="h-4 w-4" />
-                      </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
