@@ -135,3 +135,16 @@ export async function createShift(data: {
     if (error) throw error
     revalidatePath('/admin')
 }
+
+export async function updateShift(id: string, start_time: Date, end_time_expected: Date) {
+    const { error } = await supabase
+        .from('shifts')
+        .update({
+            start_time: start_time.toISOString(),
+            end_time_expected: end_time_expected.toISOString()
+        })
+        .eq('id', id)
+
+    if (error) throw error
+    revalidatePath('/admin')
+}

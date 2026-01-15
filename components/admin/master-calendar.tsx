@@ -15,7 +15,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 // Import Server Actions
-import { getTemplates, createTemplate, getShifts, createShift } from "@/app/admin/actions"
+import { getTemplates, createTemplate, getShifts, createShift, updateShift } from "@/app/admin/actions"
+
+const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+const hours = Array.from({ length: 13 }, (_, i) => i + 8) // 8am to 8pm
 
 // --- Types tailored to Supabase Data ---
 interface ProjectTemplate {
@@ -38,9 +41,6 @@ interface ShiftDisplay {
   status: string
 }
 
-const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-const hours = Array.from({ length: 13 }, (_, i) => i + 8) // 8am to 8pm
-
 export function MasterCalendar() {
   const [currentWeek, setCurrentWeek] = useState(new Date())
 
@@ -51,6 +51,7 @@ export function MasterCalendar() {
 
   // Drag State
   const [draggedTemplate, setDraggedTemplate] = useState<ProjectTemplate | null>(null)
+  const [draggedShift, setDraggedShift] = useState<ShiftDisplay | null>(null)
 
   // Modal State
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
@@ -143,41 +144,70 @@ export function MasterCalendar() {
     return shifts.filter((shift) => shift.dayIndex === dayIndex)
   }
 
+
+
+  // ... (Types remain the same)
+
   // --- Drag & Drop Handlers ---
-  const handleDragStart = (template: ProjectTemplate) => {
+  const handleTemplateDragStart = (template: ProjectTemplate) => {
     setDraggedTemplate(template)
+    setDraggedShift(null)
+  }
+
+  const handleShiftDragStart = (shift: ShiftDisplay) => {
+    setDraggedShift(shift)
+    setDraggedTemplate(null)
   }
 
   const handleDragEnd = () => {
     setDraggedTemplate(null)
+    setDraggedShift(null)
   }
 
   const handleDrop = async (dayIndex: number, hour: number) => {
-    if (!draggedTemplate) return
-
-    // 1. Calculate Start Time
+    // 1. Calculate Target Start Time
     const startOfWeek = getStartOfWeek(currentWeek)
     const targetDate = new Date(startOfWeek)
     targetDate.setDate(targetDate.getDate() + dayIndex)
     targetDate.setHours(hour, 0, 0, 0)
 
-    // 2. Calculate End Time
-    const durationMinutes = draggedTemplate.estimated_duration || 60
-    const endDate = new Date(targetDate.getTime() + durationMinutes * 60000)
+    // CASE A: Moving an Existing Shift
+    if (draggedShift) {
+      // Calculate original duration in ms
+      const durationMs = (draggedShift.end.getTime() - draggedShift.start.getTime())
+      const newEndDate = new Date(targetDate.getTime() + durationMs)
 
-    try {
-      await createShift({
-        project_template_id: draggedTemplate.id,
-        start_time: targetDate,
-        end_time_expected: endDate,
-        status: 'draft' // Default to draft/pending
-      })
-      // Optimized refresh
-      fetchData()
-    } catch (error) {
-      console.error("Failed to drop shift", error)
-    } finally {
-      setDraggedTemplate(null)
+      try {
+        // Optimistic Update (Optional, but good for UX - let's just await for simplicity)
+        await updateShift(draggedShift.id, targetDate, newEndDate)
+        fetchData()
+      } catch (error) {
+        console.error("Failed to move shift", error)
+      } finally {
+        setDraggedShift(null)
+      }
+      return
+    }
+
+    // CASE B: Creating New from Template
+    if (draggedTemplate) {
+      // Calculate End Time based on template duration
+      const durationMinutes = draggedTemplate.estimated_duration || 60
+      const endDate = new Date(targetDate.getTime() + durationMinutes * 60000)
+
+      try {
+        await createShift({
+          project_template_id: draggedTemplate.id,
+          start_time: targetDate,
+          end_time_expected: endDate,
+          status: 'draft'
+        })
+        fetchData()
+      } catch (error) {
+        console.error("Failed to drop shift", error)
+      } finally {
+        setDraggedTemplate(null)
+      }
     }
   }
 
@@ -255,7 +285,10 @@ export function MasterCalendar() {
             {days.map((_, dayIndex) => (
               <div
                 key={dayIndex}
-                className={cn("relative border-l border-border", draggedTemplate && "bg-accent/10")}
+                className={cn(
+                  "relative border-l border-border",
+                  (draggedTemplate || draggedShift) && "bg-accent/5"
+                )}
               >
                 {/* Hour Slots - Drop Targets */}
                 {hours.map((hour) => (
@@ -281,9 +314,13 @@ export function MasterCalendar() {
                   return (
                     <div
                       key={shift.id}
+                      draggable
+                      onDragStart={() => handleShiftDragStart(shift)}
+                      onDragEnd={handleDragEnd}
                       className={cn(
-                        "absolute left-1 right-1 rounded-md px-2 py-1.5 overflow-hidden transition-all border",
-                        "bg-primary/10 border-primary/20 hover:bg-primary/20"
+                        "absolute left-1 right-1 rounded-md px-2 py-1.5 overflow-hidden transition-all border cursor-grab active:cursor-grabbing z-10",
+                        "bg-primary/10 border-primary/20 hover:bg-primary/20",
+                        draggedShift?.id === shift.id && "opacity-50"
                       )}
                       style={{ top: `${top}px`, height: `${height}px` }}
                     >
@@ -317,7 +354,7 @@ export function MasterCalendar() {
               <div
                 key={template.id}
                 draggable
-                onDragStart={() => handleDragStart(template)}
+                onDragStart={() => handleTemplateDragStart(template)}
                 onDragEnd={handleDragEnd}
                 className={cn(
                   "flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/30 cursor-grab active:cursor-grabbing transition-colors",
