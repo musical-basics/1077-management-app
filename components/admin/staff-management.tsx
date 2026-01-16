@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Plus, MoreHorizontal, Phone, Mail, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -20,89 +20,90 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
+// Import Server Actions
+import { getStaff, createStaff, updateStaff } from "@/app/admin/actions"
+
+// Extended type for UI
 interface StaffMember {
   id: string
-  name: string
+  full_name: string
   phone: string
   email: string
-  avatar?: string
-  role: "Cleaner" | "Personal Assistant" | "Dog Walker" | "Team Lead"
-  rate: number
-  minGuaranteedMinutes: number
-  status: "online" | "offline"
-  onTimeRate: number
+  avatar_url?: string
+  role: string
+  hourly_rate_cents: number
+  min_guarantee_minutes: number
+  // Derived or View fields
+  onTimeRate?: number
+  // Status is not yet in DB, we mock online/offline based on something or just random for now?
+  // Let's assume 'offline' as default since no real presence system yet.
 }
 
-const staffData: StaffMember[] = [
-  {
-    id: "1",
-    name: "Sarah Mitchell",
-    phone: "+1 (555) 123-4567",
-    email: "sarah@1077.com",
-    role: "Cleaner",
-    rate: 25,
-    minGuaranteedMinutes: 120,
-    status: "online",
-    onTimeRate: 98,
-  },
-  {
-    id: "2",
-    name: "Mike Rodriguez",
-    phone: "+1 (555) 234-5678",
-    email: "mike@1077.com",
-    role: "Dog Walker",
-    rate: 22,
-    minGuaranteedMinutes: 90,
-    status: "online",
-    onTimeRate: 95,
-  },
-  {
-    id: "3",
-    name: "Emma Chen",
-    phone: "+1 (555) 345-6789",
-    email: "emma@1077.com",
-    role: "Personal Assistant",
-    rate: 30,
-    minGuaranteedMinutes: 180,
-    status: "offline",
-    onTimeRate: 100,
-  },
-  {
-    id: "4",
-    name: "James Wilson",
-    phone: "+1 (555) 456-7890",
-    email: "james@1077.com",
-    role: "Team Lead",
-    rate: 35,
-    minGuaranteedMinutes: 240,
-    status: "online",
-    onTimeRate: 99,
-  },
-]
-
-const roleColors: Record<StaffMember["role"], string> = {
-  Cleaner: "bg-chart-1/20 text-chart-1 border-chart-1/30",
+const roleColors: Record<string, string> = {
+  "Cleaner": "bg-chart-1/20 text-chart-1 border-chart-1/30",
   "Personal Assistant": "bg-chart-3/20 text-chart-3 border-chart-3/30",
   "Dog Walker": "bg-chart-2/20 text-chart-2 border-chart-2/30",
   "Team Lead": "bg-chart-5/20 text-chart-5 border-chart-5/30",
+  "admin": "bg-primary/20 text-primary border-primary/30",
+  "assistant": "bg-secondary/20 text-secondary border-secondary/30",
 }
 
 export function StaffManagement() {
+  const [data, setData] = useState<StaffMember[]>([])
+  const [loading, setLoading] = useState(true)
+
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null)
-  const [editedStaff, setEditedStaff] = useState<StaffMember | null>(null)
+
+  // Edit State
+  const [editedStaff, setEditedStaff] = useState<{
+    name: string,
+    phone: string,
+    email: string,
+    role: string,
+    rate: number, // display dollars
+    minGuaranteedMinutes: number
+  } | null>(null)
+
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [newAssistant, setNewAssistant] = useState({
     name: "",
     phone: "",
     email: "",
-    role: "" as StaffMember["role"] | "",
+    role: "",
     rate: "",
     minGuaranteedMinutes: "",
   })
 
+  // Fetch Data
+  const fetchData = async () => {
+    setLoading(true)
+    try {
+      const result = await getStaff()
+      // Supabase returns keys matching DB columns: full_name, hourly_rate_cents etc.
+      // Typescript might complain if we don't cast or map.
+      // The action returns `merged` array.
+      setData(result as unknown as StaffMember[])
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
   const handleRowClick = (staff: StaffMember) => {
     setSelectedStaff(staff)
-    setEditedStaff({ ...staff })
+    setEditedStaff({
+      name: staff.full_name,
+      phone: staff.phone,
+      email: staff.email,
+      role: staff.role,
+      rate: staff.hourly_rate_cents / 100,
+      minGuaranteedMinutes: staff.min_guarantee_minutes
+    })
   }
 
   const handleCloseSheet = () => {
@@ -110,16 +111,49 @@ export function StaffManagement() {
     setEditedStaff(null)
   }
 
-  const handleCreateAssistant = () => {
-    setIsAddModalOpen(false)
-    setNewAssistant({
-      name: "",
-      phone: "",
-      email: "",
-      role: "",
-      rate: "",
-      minGuaranteedMinutes: "",
-    })
+  const handleSaveEdit = async () => {
+    if (!selectedStaff || !editedStaff) return
+    try {
+      await updateStaff(selectedStaff.id, {
+        name: editedStaff.name,
+        phone: editedStaff.phone,
+        email: editedStaff.email,
+        role: editedStaff.role,
+        rate: editedStaff.rate,
+        minGuaranteedMinutes: editedStaff.minGuaranteedMinutes
+      })
+      fetchData()
+      handleCloseSheet()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const handleCreateAssistant = async () => {
+    try {
+      await createStaff({
+        name: newAssistant.name,
+        phone: newAssistant.phone,
+        email: newAssistant.email,
+        role: newAssistant.role,
+        rate: parseFloat(newAssistant.rate),
+        minGuaranteedMinutes: parseInt(newAssistant.minGuaranteedMinutes) || 120
+      })
+
+      setIsAddModalOpen(false)
+      fetchData() // Refresh
+      // Reset
+      setNewAssistant({
+        name: "",
+        phone: "",
+        email: "",
+        role: "",
+        rate: "",
+        minGuaranteedMinutes: "",
+      })
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   return (
@@ -156,64 +190,70 @@ export function StaffManagement() {
             </tr>
           </thead>
           <tbody>
-            {staffData.map((staff) => (
-              <tr
-                key={staff.id}
-                onClick={() => handleRowClick(staff)}
-                className="border-b border-border last:border-b-0 hover:bg-muted/20 cursor-pointer transition-colors"
-              >
-                <td className="px-4 py-4">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="w-10 h-10 border border-border">
-                      <AvatarImage src={staff.avatar || "/placeholder.svg"} />
-                      <AvatarFallback className="bg-muted text-muted-foreground text-sm">
-                        {staff.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium text-foreground">{staff.name}</p>
-                      <p className="text-xs text-muted-foreground">{staff.phone}</p>
+            {loading ? (
+              <tr><td colSpan={5} className="p-4 text-center text-sm text-muted-foreground">Loading roster...</td></tr>
+            ) : data.length === 0 ? (
+              <tr><td colSpan={5} className="p-4 text-center text-sm text-muted-foreground">No team members found. Add one to get started.</td></tr>
+            ) : (
+              data.map((staff) => (
+                <tr
+                  key={staff.id}
+                  onClick={() => handleRowClick(staff)}
+                  className="border-b border-border last:border-b-0 hover:bg-muted/20 cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="w-10 h-10 border border-border">
+                        <AvatarImage src={staff.avatar_url || "/placeholder.svg"} />
+                        <AvatarFallback className="bg-muted text-muted-foreground text-sm">
+                          {(staff.full_name || "?")
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium text-foreground">{staff.full_name}</p>
+                        <p className="text-xs text-muted-foreground">{staff.phone}</p>
+                      </div>
                     </div>
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <Badge variant="outline" className={cn("font-medium", roleColors[staff.role])}>
-                    {staff.role}
-                  </Badge>
-                </td>
-                <td className="px-4 py-4">
-                  <span className="text-foreground font-mono">${staff.rate.toFixed(2)}/hr</span>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "w-2 h-2 rounded-full",
-                        staff.status === "online" ? "bg-live" : "bg-muted-foreground",
-                      )}
-                    />
-                    <span className="text-sm text-muted-foreground capitalize">{staff.status}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-4 text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>Edit Profile</DropdownMenuItem>
-                      <DropdownMenuItem>View Schedule</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive">Deactivate</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-4 py-4">
+                    <Badge variant="outline" className={cn("font-medium", roleColors[staff.role] || "bg-muted text-muted-foreground")}>
+                      {staff.role}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className="text-foreground font-mono">${(staff.hourly_rate_cents / 100).toFixed(2)}/hr</span>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "w-2 h-2 rounded-full",
+                          /* Mock Status */
+                          "bg-muted-foreground"
+                        )}
+                      />
+                      <span className="text-sm text-muted-foreground capitalize">Offline</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleRowClick(staff)}>Edit Profile</DropdownMenuItem>
+                        <DropdownMenuItem>View Schedule</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive">Deactivate</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              )))}
           </tbody>
         </table>
       </div>
@@ -227,7 +267,7 @@ export function StaffManagement() {
             </div>
           </SheetHeader>
 
-          {editedStaff && (
+          {editedStaff && selectedStaff && (
             <div className="py-6 space-y-6">
               {/* Profile Section */}
               <div className="space-y-4">
@@ -235,7 +275,7 @@ export function StaffManagement() {
                 <div className="flex items-center gap-4 mb-4">
                   <Avatar className="w-16 h-16 border border-border">
                     <AvatarFallback className="bg-muted text-muted-foreground text-lg">
-                      {editedStaff.name
+                      {(editedStaff.name || "?")
                         .split(" ")
                         .map((n) => n[0])
                         .join("")}
@@ -243,7 +283,7 @@ export function StaffManagement() {
                   </Avatar>
                   <div>
                     <p className="font-semibold text-foreground">{editedStaff.name}</p>
-                    <Badge variant="outline" className={cn("font-medium mt-1", roleColors[editedStaff.role])}>
+                    <Badge variant="outline" className={cn("font-medium mt-1", roleColors[editedStaff.role] || "bg-muted")}>
                       {editedStaff.role}
                     </Badge>
                   </div>
@@ -318,12 +358,12 @@ export function StaffManagement() {
                 <div className="bg-muted/30 rounded-lg border border-border p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">On-Time Arrival Rate</span>
-                    <span className="text-2xl font-semibold text-foreground">{editedStaff.onTimeRate}%</span>
+                    <span className="text-2xl font-semibold text-foreground">{selectedStaff.onTimeRate || 0}%</span>
                   </div>
                   <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-live rounded-full transition-all"
-                      style={{ width: `${editedStaff.onTimeRate}%` }}
+                      style={{ width: `${selectedStaff.onTimeRate || 0}%` }}
                     />
                   </div>
                 </div>
@@ -331,7 +371,7 @@ export function StaffManagement() {
 
               {/* Actions */}
               <div className="flex gap-3 pt-4">
-                <Button className="flex-1">Save Changes</Button>
+                <Button className="flex-1" onClick={handleSaveEdit}>Save Changes</Button>
                 <Button variant="outline" onClick={handleCloseSheet}>
                   Cancel
                 </Button>
@@ -358,9 +398,9 @@ export function StaffManagement() {
                 <AvatarFallback className="bg-muted text-muted-foreground">
                   {newAssistant.name
                     ? newAssistant.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
                     : "?"}
                 </AvatarFallback>
               </Avatar>
@@ -416,7 +456,7 @@ export function StaffManagement() {
               <Label className="text-foreground">Role</Label>
               <Select
                 value={newAssistant.role}
-                onValueChange={(value) => setNewAssistant({ ...newAssistant, role: value as StaffMember["role"] })}
+                onValueChange={(value) => setNewAssistant({ ...newAssistant, role: value })}
               >
                 <SelectTrigger className="bg-muted/50 border-border">
                   <SelectValue placeholder="Select a role" />

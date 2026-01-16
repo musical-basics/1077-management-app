@@ -148,3 +148,86 @@ export async function updateShift(id: string, start_time: Date, end_time_expecte
     if (error) throw error
     revalidatePath('/admin')
 }
+
+// --- STAFF MANAGEMENT ---
+
+export async function getStaff() {
+    // 1. Get Users
+    const { data: users, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+    if (userError) {
+        console.error('Error fetching users:', userError)
+        return []
+    }
+
+    // 2. Get Performance Stats (Optional)
+    let stats: any[] = []
+    const { data: statsData, error: statsError } = await supabase
+        .from('view_staff_performance')
+        .select('user_id, on_time_percentage')
+
+    if (!statsError && statsData) {
+        stats = statsData
+    }
+
+    // 3. Merge
+    const merged = users.map(user => {
+        const stat = stats.find((s: any) => s.user_id === user.id)
+        return {
+            ...user,
+            onTimeRate: stat?.on_time_percentage || 100 // Default to 100 if no data
+        }
+    })
+
+    return merged
+}
+
+export async function createStaff(data: {
+    name: string,
+    phone: string,
+    email: string,
+    role: string,
+    rate: number, // in dollars
+    minGuaranteedMinutes: number
+}) {
+    const { error } = await supabase
+        .from('users')
+        .insert([{
+            full_name: data.name,
+            phone: data.phone,
+            email: data.email,
+            role: data.role,
+            hourly_rate_cents: Math.round(data.rate * 100),
+            min_guarantee_minutes: data.minGuaranteedMinutes,
+        }])
+
+    if (error) throw error
+    revalidatePath('/admin')
+}
+
+export async function updateStaff(id: string, data: {
+    name: string,
+    phone: string,
+    email: string,
+    role: string,
+    rate: number,
+    minGuaranteedMinutes: number
+}) {
+    const { error } = await supabase
+        .from('users')
+        .update({
+            full_name: data.name,
+            phone: data.phone,
+            email: data.email,
+            role: data.role,
+            hourly_rate_cents: Math.round(data.rate * 100),
+            min_guarantee_minutes: data.minGuaranteedMinutes
+        })
+        .eq('id', id)
+
+    if (error) throw error
+    revalidatePath('/admin')
+}
