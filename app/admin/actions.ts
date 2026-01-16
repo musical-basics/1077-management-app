@@ -156,6 +156,7 @@ export async function getStaff() {
     const { data: users, error: userError } = await supabase
         .from('users')
         .select('*')
+        .eq('is_active', true)
         .order('created_at', { ascending: false })
 
     if (userError) {
@@ -226,6 +227,16 @@ export async function updateStaff(id: string, data: {
             hourly_rate_cents: Math.round(data.rate * 100),
             min_guarantee_minutes: data.minGuaranteedMinutes
         })
+        .eq('id', id)
+
+    if (error) throw error
+    revalidatePath('/admin')
+}
+
+export async function deleteStaff(id: string) {
+    const { error } = await supabase
+        .from('users')
+        .update({ is_active: false })
         .eq('id', id)
 
     if (error) throw error

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, MoreHorizontal, Phone, Mail, Upload } from "lucide-react"
+import { Plus, MoreHorizontal, Phone, Mail, Upload, Pencil, Calendar, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils"
 
 // Import Server Actions
-import { getStaff, createStaff, updateStaff } from "@/app/admin/actions"
+import { getStaff, createStaff, updateStaff, deleteStaff } from "@/app/admin/actions"
 
 // Extended type for UI
 interface StaffMember {
@@ -239,18 +239,50 @@ export function StaffManagement() {
                     </div>
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="w-4 h-4" />
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRowClick(staff)
+                          }}
+                          title="Edit Profile"
+                        >
+                          <Pencil className="w-4 h-4" />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleRowClick(staff)}>Edit Profile</DropdownMenuItem>
-                        <DropdownMenuItem>View Schedule</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">Deactivate</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // TODO: Navigate to schedule or open modal
+                            console.log("View Schedule", staff.id)
+                          }}
+                          title="View Schedule"
+                        >
+                          <Calendar className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (confirm("Are you sure you want to remove this staff member?")) {
+                              await deleteStaff(staff.id)
+                              fetchData()
+                            }
+                          }}
+                          title="Delete User"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
                   </td>
                 </tr>
               )))}
